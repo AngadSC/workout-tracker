@@ -1,0 +1,112 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+    id    String  @id @default(cuid())
+    name  String? @unique
+    image String?
+
+    //Relationships
+
+    workouts  Workout[]
+    exercises Exercise[] @relation("UserExercises")
+    createdAt DateTime   @default(now())
+    updatedAt DateTime   @updatedAt
+    // NextAuth
+    accounts  Account[]
+    sessions  Session[]
+}
+
+//Auth Tables:
+model Account {
+    id                String  @id @default(cuid())
+    userId            String
+    type              String
+    provider          String
+    providerAccountId String // e.g., OAuth sub / id
+    refresh_token     String?
+    access_token      String?
+    expires_at        Int?
+    token_type        String?
+    scope             String?
+    id_token          String?
+    session_state     String?
+    user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([provider, providerAccountId])
+}
+
+model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique
+    userId       String
+    expires      DateTime
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+    identifier String
+    token      String   @unique
+    expires    DateTime
+
+    @@unique([identifier, token])
+}
+
+//Models of the app, the features and stuff it has 
+
+model Workout {
+    id           String    @id @default(cuid())
+    userId       String
+    dayKey       DateTime // date bucket (00:00 local -> stored UTC)
+    splitName    String // "Chest & Biceps", "Push", etc.
+    note         String?
+    startedAt    DateTime  @default(now())
+    completedAt  DateTime?
+    user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+    sets         Set[]
+    summaryReady Boolean   @default(false) // future: when day overview is computed
+    createdAt    DateTime  @default(now())
+    updatedAt    DateTime  @updatedAt
+
+    @@unique([userId, dayKey]) // Enforce exactly one workout per day per user
+    @@index([userId, startedAt])
+}
+
+// Per-user exercise catalog (case-insensitive uniqueness enforced via nameKey)
+model Exercise {
+    id        String   @id @default(cuid())
+    userId    String
+    name      String // display name (original casing)
+    nameKey   String // normalized key (lowercased, trimmed, single spaces)
+    muscle    String? // optional grouping tag, e.g., "Chest"
+    user      User     @relation("UserExercises", fields: [userId], references: [id], onDelete: Cascade)
+    sets      Set[]
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([userId, nameKey]) // prevent duplicates like "bench press" vs "Bench  Press"
+    @@index([userId, name])
+}
+
+model Set {
+    id         String   @id @default(cuid())
+    workoutId  String
+    exerciseId String
+    sequence   Int // order within the workout logging stream
+    weightLb   Float // store pounds as canonical unit
+    reps       Int
+    rpe        Float?
+    note       String?
+    ts         DateTime @default(now())
+    workout    Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+    exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+    @@index([exerciseId, ts])
+    @@index([workoutId, sequence])
+}
